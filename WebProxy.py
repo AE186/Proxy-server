@@ -31,24 +31,44 @@ class WebProxy:
         while True:
             read, write, err = select.select([self.serverSocket], [], [], 0)
             for s in read:
-                client, address = s.accept()
+                browser, address = s.accept()
                 
                 # Forking process to service client
-                client_process = Process(target=self.service_client, args=(client, address))
+                client_process = Process(target=self.service_client, args=(browser, address))
                 client_process.start()
     
-    def service_client(self, client, address):
+    def service_client(self, browser, address):
         # Get Requested url from client
-        req = client.recv(1024).decode()
+        req = browser.recv(1024).decode()
         line = req.split('\n')[0]
         url = line.split(' ')[1]
 
         print(f'Sending request Client:{address} req:{url}')
 
+        webserver, port = self.parse_req(url)
+        
+        # Connect with web server
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.settimeout(60)
+        server.connect((webserver, port))
+        server.sendall(req.encode())
+
+        while True:
+            data = server.recv(1024)
+
+            if len(data) > 0:
+                browser.send(data)
+            else:
+                break
+        
+        print(f'Client:{address} req:{url} Serviced')
+
+        browser.close()
+    
+    def parse_req(self, url):
         http_pos = url.find('://')
         if http_pos != -1:
             url = url[http_pos+3:]
-
         
         webserver = ''
         port = ''
@@ -66,23 +86,4 @@ class WebProxy:
             port = int(url[port_pos+1:webserver_pos])
             webserver = url[:port_pos]
         
-        # Connect with web server
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.settimeout(60)
-        s.connect((webserver, port))
-        # s = ssl.wrap_socket(s, keyfile=None, certfile=None, server_side=False, cert_reqs=ssl.CERT_NONE, ssl_version=ssl.PROTOCOL_SSLv23)
-        s.sendall(req.encode())
-
-        while True:
-            data = s.recv(1024)
-
-            if len(data) > 0:
-                client.send(data)
-            else:
-                break
-
-        
-        print(f'Client:{address} req:{url} Serviced')
-
-        client.shutdown(socket.SHUT_RDWR)
-        client.close()
+        return webserver, port
