@@ -71,7 +71,7 @@ class WebProxy:
             url = url[http_pos+3:]
         
         webserver = ''
-        port = ''
+        port = ''s
 
         port_pos = url.find(':')
         
