@@ -3,18 +3,25 @@ import socket
 import signal
 import sys
 import select
+import json
+import ContentFilter
+
+content_filter = ContentFilter.Filter()
 
 class WebProxy:
-    def __init__(self, port):
+    def __init__(self):
         signal.signal(signal.SIGINT, self.shutdown)
+
+        with open('config.json') as f:
+            self.config = json.load(f)
 
         try:
             self.proxySocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.proxySocket.settimeout(0)
-            self.proxySocket.bind(('localhost', port))
+            self.proxySocket.bind((self.config['IP'], self.config['PORT']))
             self.proxySocket.listen()
 
-            print("Socket Created")
+            # print("Socket Created")
 
         except socket.error as err:
             print("Socket Creation Failed")
@@ -34,17 +41,23 @@ class WebProxy:
                 
                 # Forking process to service client
                 client_process = Process(target=self.service_browser, args=(browser, address))
+                client_process.daemon = True
                 client_process.start()
             
     def service_browser(self, browser, address):
         # Get Request from browser
-        req = browser.recv(1024).decode()
+        req = browser.recv(self.config['MAX-RECV-BUFF']).decode()
         line = req.split('\n')[0]
         url = line.split(' ')[1]
         method = line.split(' ')[0]
 
         webserver, port = self.parse_url(url)
-        print(f'Client:{address} method:{method} url:{url}')
+
+        if content_filter.block(url):
+            browser.close()
+            return
+
+        # print(f'Client:{address} method:{method} url:{url}\n')
         
         # Connect with web server and serve data to browser
         if port == 80:
@@ -52,7 +65,7 @@ class WebProxy:
         else:
             self.serve_https(webserver, port, browser)
         
-        # print(f'Client:{address} req:{url} Serviced')
+        # print(f'Client:{address} method:{method} url:{url} Serviced')
 
         browser.close()
     
@@ -91,9 +104,10 @@ class WebProxy:
 
         content = bytes()
 
+        
         while True:
             try:
-                data = server.recv(1024)
+                data = server.recv(self.config['MAX-RECV-BUFF'])
             except socket.error as err:
                 pass
 
@@ -103,6 +117,7 @@ class WebProxy:
                 break
         
         browser.sendall(content)
+        server.close()
 
         # if method == 'GET' or method == 'POST':
             # Caching Content
@@ -125,12 +140,12 @@ class WebProxy:
 
                 read, write, err = select.select([browser], [], [], 0)
                 for s in read:
-                    browser_data = s.recv(1024)
+                    browser_data = s.recv(self.config['MAX-RECV-BUFF'])
                     server.sendall(browser_data)
                 
                 read, write, err = select.select([server], [], [], 0)
                 for s in read:
-                    server_data = s.recv(1024)
+                    server_data = s.recv(self.config['MAX-RECV-BUFF'])
                     browser.sendall(server_data)
                 
                 if browser_data is not None and server_data is not None and len(browser_data) == 0 and len(server_data) == 0:
@@ -138,4 +153,11 @@ class WebProxy:
             except socket.error as e:
                 print(e)
                 break
+        
+        server.close()
 
+    def block(self, url):
+            content_filter.Add_url(url)
+        
+    def unblock(self, url):
+            content_filter.remove_url(url)
