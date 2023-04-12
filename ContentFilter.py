@@ -1,11 +1,17 @@
 import json
 import re
+import os
 
 class Filter:
     def __init__(self):
-        with open('config.json') as f:
-            f = json.load(f)
-            self.filter_list = f['CONTENT-FILTER']
+        if os.path.exists('filter.json'):
+            with open('filter.json') as f:
+                f = json.load(f)
+                self.filter_list = f['blocked-urls']
+        else:
+            self.filter_list = []
+            with open('filter.json') as f:
+                f.write(json.dumps({'blocked-urls': []}))
     
     def block(self, url):
         for ele in self.filter_list:
@@ -21,12 +27,12 @@ class Filter:
         
         self.filter_list.append(url)
 
-        with open('config.json') as f:
+        with open('filter.json') as f:
             new_config = json.load(f)
         
-        new_config['CONTENT-FILTER'] = self.filter_list
+        new_config['blocked-urls'] = self.filter_list
 
-        with open('config.json', 'w') as f:
+        with open('filter.json', 'w') as f:
             f.write(json.dumps(new_config))
     
     def remove_url(self, url):
@@ -35,12 +41,12 @@ class Filter:
                 self.filter_list[i], self.filter_list[len(self.filter_list)-1] = self.filter_list[len(self.filter_list)-1], self.filter_list[i]
                 self.filter_list.pop()
 
-                with open('config.json') as f:
+                with open('filter.json') as f:
                     new_config = json.load(f)
                 
-                new_config['CONTENT-FILTER'] = self.filter_list
+                new_config['blocked-urls'] = self.filter_list
 
-                with open('config.json', 'w') as f:
+                with open('filter.json', 'w') as f:
                     f.write(json.dumps(new_config))
                 
                 break

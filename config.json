@@ -1,1 +1,8 @@
-{"IP": "localhost", "PORT": 9999, "MAX-RECV-BUFF": 1024, "CONTENT-FILTER": ["facebook.com", "ad"]}
+{
+  "IP": "localhost",
+  "PORT": 9999,
+  "MAX-RECV-BUFF": 1024,
+  "MAX-TIMEOUT": 60,
+  "CACHING-ALGO": "LRU",
+  "CACHE-SIZE": 100
+}

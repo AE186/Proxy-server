@@ -5,8 +5,7 @@ import sys
 import select
 import json
 import ContentFilter
-
-content_filter = ContentFilter.Filter()
+import Cache
 
 class WebProxy:
     def __init__(self):
@@ -14,6 +13,9 @@ class WebProxy:
 
         with open('config.json') as f:
             self.config = json.load(f)
+
+        self.content_filter = ContentFilter.Filter()
+        self.cache = Cache.getCache(self.config['CACHING-ALGO'], self.config['CACHE-SIZE'])
 
         try:
             self.proxySocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -53,7 +55,7 @@ class WebProxy:
 
         webserver, port = self.parse_url(url)
 
-        if content_filter.block(url):
+        if self.content_filter.block(url):
             browser.close()
             return
 
@@ -61,7 +63,7 @@ class WebProxy:
         
         # Connect with web server and serve data to browser
         if port == 80:
-            self.serve_http(webserver, port, browser, req, method)
+            self.serve_http(webserver, port, browser, req, method, url)
         else:
             self.serve_https(webserver, port, browser)
         
@@ -92,13 +94,17 @@ class WebProxy:
         
         return webserver, port
 
-    def serve_http(self, webserver, port, browser, req, method):
+    def serve_http(self, webserver, port, browser, req, method, url):
         # Only GET and HEAD requests can be cached
-        # if method == 'GET' or method == 'HEAD':
-            # Implement Caching Algos
+        if (method == 'GET' or method == 'HEAD'):
+            content = self.cache.get(url)
+            if content is not None:
+                browser.sendall(content)
+                browser.close()
+                return
 
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.settimeout(60)
+        server.settimeout(self.config["MAX-TIMEOUT"])
         server.connect((webserver, port))
         server.sendall(req.encode())
 
@@ -119,8 +125,8 @@ class WebProxy:
         browser.sendall(content)
         server.close()
 
-        # if method == 'GET' or method == 'POST':
-            # Caching Content
+        if method == 'GET' or method == 'HEAD':
+            self.cache.put(url, content)
     
     def serve_https(self, webserver, port, browser):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -157,7 +163,7 @@ class WebProxy:
         server.close()
 
     def block(self, url):
-            content_filter.Add_url(url)
+            self.content_filter.Add_url(url)
         
     def unblock(self, url):
-            content_filter.remove_url(url)
+            self.content_filter.remove_url(url)

@@ -1,4 +1,5 @@
 from multiprocessing import Process
+import os
 import WebProxy
 
 if __name__ == "__main__":
@@ -25,5 +26,7 @@ if __name__ == "__main__":
                 proxy.unblock(url)
             elif n == 3:
                 break
-    
         
+        os.system('cls')
+    
+    process.kill()
