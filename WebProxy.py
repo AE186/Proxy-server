@@ -1,4 +1,5 @@
-from multiprocessing import Process
+from multiprocessing import Process, Event, Lock, active_children
+from multiprocessing.managers import BaseManager
 import socket
 import signal
 import sys
@@ -7,15 +8,26 @@ import json
 import ContentFilter
 import Cache
 
+# config = json.load(open('config.json'))
+# content_filter = ContentFilter.Filter()
+# cache = Cache.getCache(config['CACHING-ALGO'], config['CACHE-SIZE'])
+
+class CustomManager(BaseManager):
+    pass
+
 class WebProxy:
     def __init__(self):
-        signal.signal(signal.SIGINT, self.shutdown)
+        # signal.signal(signal.SIGINT, signal.SIG_IGN)
+        # signal.signal(signal.SIGTERM, self.shutdown)
+
+        self.event = Event()
 
         with open('config.json') as f:
             self.config = json.load(f)
 
-        self.content_filter = ContentFilter.Filter()
-        self.cache = Cache.getCache(self.config['CACHING-ALGO'], self.config['CACHE-SIZE'])
+        # self.content_filter = ContentFilter.Filter()
+        # cache = Cache.getCache(self.config['CACHING-ALGO'], self.config['CACHE-SIZE'])
+        # self.cache_lock = Lock()
 
         try:
             self.proxySocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -30,23 +42,48 @@ class WebProxy:
             print(err)
             sys.exit(0)
     
-    def shutdown(self, signal, frame):
+    def shutdown(self):
         self.proxySocket.close()
+        self.event.set()
         print("Shutting Down Proxy Server")
-        sys.exit(0)
     
     def run(self):
-        while True:
-            read, write, err = select.select([self.proxySocket], [], [], 0)
-            for s in read:
-                browser, address = s.accept()
+        # signal.signal(signal.SIGINT, self.shutdown)
+        CustomManager.register('Filter', ContentFilter.Filter)
+        CustomManager.register('Cache', Cache.Cache)
+        CustomManager.register('Lock', Lock)
+
+        manager = CustomManager()
+        manager.start()
+
+        cache = manager.Cache()
+        content_filter = manager.Filter()
+        cache_lock = manager.Lock()
+
+        while not self.event.is_set():
+            try:
+                read, write, err = select.select([self.proxySocket], [], [], 0)
+                for s in read:
+                    browser, address = s.accept()
+                    
+                    # Forking process to service client
+                    client_process = Process(target=self.service_browser, args=(browser, content_filter, cache, cache_lock))
+                    client_process.daemon = True
+                    client_process.start()
+            except ValueError:
+                break
+        
+        cache.save()
                 
-                # Forking process to service client
-                client_process = Process(target=self.service_browser, args=(browser, address))
-                client_process.daemon = True
-                client_process.start()
-            
-    def service_browser(self, browser, address):
+        children = active_children()
+        for child in children:
+            child.kill()
+            child.join()
+        
+        manager.shutdown()
+        print('done')
+
+    def service_browser(self, browser, content_filter, cache, cache_lock):
         # Get Request from browser
         req = browser.recv(self.config['MAX-RECV-BUFF']).decode()
         line = req.split('\n')[0]
@@ -55,7 +92,7 @@ class WebProxy:
 
         webserver, port = self.parse_url(url)
 
-        if self.content_filter.block(url):
+        if content_filter.block(url):
             browser.close()
             return
 
@@ -63,7 +100,7 @@ class WebProxy:
         
         # Connect with web server and serve data to browser
         if port == 80:
-            self.serve_http(webserver, port, browser, req, method, url)
+            self.serve_http(webserver, port, browser, req, method, url, cache, cache_lock)
         else:
             self.serve_https(webserver, port, browser)
         
@@ -94,39 +131,50 @@ class WebProxy:
         
         return webserver, port
 
-    def serve_http(self, webserver, port, browser, req, method, url):
+    def serve_http(self, webserver, port, browser, req, method, url, cache, cache_lock):
         # Only GET and HEAD requests can be cached
         if (method == 'GET' or method == 'HEAD'):
-            content = self.cache.get(url)
+            cache_lock.acquire()
+            content = cache.get(url)
+            cache_lock.release()
+
             if content is not None:
                 browser.sendall(content)
                 browser.close()
                 return
 
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        server.settimeout(self.config["MAX-TIMEOUT"])
         server.connect((webserver, port))
         server.sendall(req.encode())
+        server.settimeout(0)
 
         content = bytes()
 
-        
         while True:
             try:
-                data = server.recv(self.config['MAX-RECV-BUFF'])
-            except socket.error as err:
-                pass
+                data = None
 
-            if len(data) > 0:
-                content += data
-            else:
+                read, write, err = select.select([server], [], [],0)
+                for s in read:
+                    data = s.recv(self.config['MAX-RECV-BUFF'])
+
+                if data is not None and len(data) > 0:
+                    content += data
+                elif data is None:
+                    continue
+                else:
+                    break
+
+            except socket.error as err:
                 break
         
         browser.sendall(content)
         server.close()
 
         if method == 'GET' or method == 'HEAD':
-            self.cache.put(url, content)
+            cache_lock.acquire()
+            cache.put(url, content)
+            cache_lock.release()
     
     def serve_https(self, webserver, port, browser):
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -157,7 +205,6 @@ class WebProxy:
                 if browser_data is not None and server_data is not None and len(browser_data) == 0 and len(server_data) == 0:
                     break
             except socket.error as e:
-                print(e)
                 break
         
         server.close()
