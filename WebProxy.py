@@ -1,7 +1,7 @@
 from multiprocessing import Process, Event, Lock, active_children
 from multiprocessing.managers import BaseManager
 import socket
-import signal
+import re
 import sys
 import select
 import json
@@ -17,17 +17,10 @@ class CustomManager(BaseManager):
 
 class WebProxy:
     def __init__(self):
-        # signal.signal(signal.SIGINT, signal.SIG_IGN)
-        # signal.signal(signal.SIGTERM, self.shutdown)
-
         self.event = Event()
 
         with open('config.json') as f:
             self.config = json.load(f)
-
-        # self.content_filter = ContentFilter.Filter()
-        # cache = Cache.getCache(self.config['CACHING-ALGO'], self.config['CACHE-SIZE'])
-        # self.cache_lock = Lock()
 
         try:
             self.proxySocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -48,7 +41,6 @@ class WebProxy:
         print("Shutting Down Proxy Server")
     
     def run(self):
-        # signal.signal(signal.SIGINT, self.shutdown)
         CustomManager.register('Filter', ContentFilter.Filter)
         CustomManager.register('Cache', Cache.Cache)
         CustomManager.register('Lock', Lock)
@@ -132,6 +124,11 @@ class WebProxy:
         return webserver, port
 
     def serve_http(self, webserver, port, browser, req, method, url, cache, cache_lock):
+        http_pos = url.find('://')
+        if http_pos != -1:
+            url = url[http_pos+3:]
+        url = re.sub(r'[\/:*?"<>|]', '_', url)
+
         # Only GET and HEAD requests can be cached
         if (method == 'GET' or method == 'HEAD'):
             cache_lock.acquire()
@@ -209,8 +206,3 @@ class WebProxy:
         
         server.close()
 
-    def block(self, url):
-            self.content_filter.Add_url(url)
-        
-    def unblock(self, url):
-            self.content_filter.remove_url(url)

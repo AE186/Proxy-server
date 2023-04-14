@@ -4,6 +4,12 @@ import ContentFilter
 filter = ContentFilter.Filter()
 
 while True:
+        os.system('cls')
+        print('Blocked urls:')
+        for url in filter.get_block_list():
+            print(f'\t{url}')
+
+        print()
         print("1) Block URL")
         print("2) Remove Blocked URL")
         print("3) Exit\n")
@@ -22,4 +28,3 @@ while True:
             elif n == 3:
                 break
         
-        os.system('cls')

@@ -1,22 +1,28 @@
 import json
 import os
+import shutil
 import sys
 
 class LRUCache:
     def __init__(self, size) -> None:
+        self.directory = os.path.join(os.getcwd(), 'cache')
+        if not os.path.exists(self.directory):
+            os.mkdir(self.directory)
+
         if os.path.exists('cache.json'):
             with open('cache.json') as f:
                 f = json.load(f)
                 if f['algo'] == 'LRU'and size == f['size']:
                     self.queue = f['queue']
                     self.map = f['map']
-                    self.pairs = f['pairs']
                     self.size = f['size']
                     return
+                else:
+                    shutil.rmtree(self.directory)
+                    os.mkdir(self.directory)
         
         self.queue = []
         self.map = {}
-        self.pairs = {}
         self.size = size
 
     def refer(self, x):
@@ -25,7 +31,7 @@ class LRUCache:
                 last = self.queue[-1]
                 self.map.pop(last)
                 self.queue.pop()
-                self.pairs.pop(last)
+                os.remove(os.path.join(self.directory, last+'.txt'))
 
         else:
             self.queue.pop(self.map[x])
@@ -38,23 +44,25 @@ class LRUCache:
     def get(self, x):
         if x in self.map:
             self.refer(x)
-            return self.pairs[x]
+            return open(os.path.join(self.directory, x+'.txt'), 'rb').read()
 
         return None
 
     def put(self, x, val):
         if x not in self.map:
             self.refer(x)
-            self.pairs[x] = val
+            with open(os.path.join(self.directory, x+'.txt'), "wb") as f:
+                f.write(val)
     
     def save(self):
-        print(self.queue)
+        if len(self.queue) == 0:
+            os.remove(self.directory)
+
         save = {}
         save['algo'] = 'LRU'
         save['size'] = self.size
         save['queue'] = self.queue
         save['map'] = self.map
-        save['pairs'] = self.pairs
         
         with open('cache.json', 'w') as f:
             f.write(json.dumps(save))
@@ -64,6 +72,10 @@ class LRUCache:
 
 class FIFOCache:
     def __init__(self, size) -> None:
+        self.directory = os.path.join(os.getcwd(), 'cache')
+        if not os.path.exists(self.directory):
+            os.mkdir(self.directory)
+
         if os.path.exists('cache.json'):
             with open('cache.json') as f:
                 f = json.load(f)
@@ -72,6 +84,9 @@ class FIFOCache:
                     self.pairs = f['pairs']
                     self.size = f['size']
                     return
+                else:
+                    shutil.rmtree(self.directory)
+                    os.mkdir(self.directory)
         
         self.queue = []
         self.pairs = {}
@@ -82,21 +97,26 @@ class FIFOCache:
             if len(self.queue) == self.size:
                 delete = self.queue.pop(0)
                 self.pairs.pop(delete)
+                os.remove(os.path.join(self.directory, delete+'.txt'))
             self.queue.append(x)
 
     def get(self, x):
         if x in self.pairs:
-            return self.pairs[x]
+            return open(os.path.join(self.directory, x+'.txt'), 'rb').read()
 
         return None
 
     def put(self, x, val):
         if x not in self.pairs:
             self.refer(x)
-            self.pairs[x] = val
+            self.pairs[x] = 0
+            with open(os.path.join(self.directory, x+'.txt'), "wb") as f:
+                f.write(val)
     
     def save(self):
-        print(self.queue)
+        if len(self.queue) == 0:
+            os.remove(self.directory)
+    
         save = {}
         save['algo'] = 'FIFO'
         save['size'] = self.size
@@ -135,4 +155,3 @@ class Cache:
     
     def details(self):
         self.cache.details()
-
